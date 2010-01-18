@@ -1,6 +1,7 @@
 <cfcomponent output="false">
 
 	<cfset variables.defaultCollectionName = "default_collection" />
+	<cfset variables.javaLoader = initJavaLoader() />
 
 	<cffunction name="init" output="false" access="public" returntype="MongoDB" hint="Public constructor functions">
 		<cfargument name="dbName" default="default_db" type="string" hint="The name of the database to connect to" />
@@ -8,7 +9,7 @@
 		<cfargument name="serverPort" default="27017" type="numeric" hint="The port to connect to" />
 		<cfargument name="defaultCollection" type="string" required="false" hint="When collection argument is not specified in methods, this collection will be used by default" />
 
-		<cfset variables.mongo = createObject("java", "com.mongodb.Mongo").init(arguments.serverName, arguments.serverPort) />
+		<cfset variables.mongo = variables.javaLoader.create("com.mongodb.Mongo").init(arguments.serverName, arguments.serverPort) />
 		<cfset variables.db = variables.mongo.getDb(arguments.dbName) />
 		<!---<cfset variables.expression_builder = createObject('component', 'ExpressionBuilder') />
 		<cfset variables.builder = createObject('component', 'ExpressionBuilder') />--->
@@ -29,7 +30,7 @@
 
 		<cfset var localVars = structNew() />
 		<cfset localVars.col = variables.db.getCollection(arguments.collection) />
-		<cfset localVars.doc = createObject("java", "com.mongodb.BasicDBObject").init() />
+		<cfset localVars.doc = variables.javaLoader.create("com.mongodb.BasicDBObject").init() />
 		<cfset localVars.id = chr(0) />
 
 		<cfset localVars.doc.putAll(arguments.object) />
@@ -44,7 +45,7 @@
 
 		<cfset var localVars = structNew() />
 		<cfset localVars.collection = variables.db.getCollection(arguments.collection) />
-		<cfset localVars.query = createObject("java", "com.mongodb.BasicDBObject").init(arguments.query) />
+		<cfset localVars.query = variables.javaLoader.create("com.mongodb.BasicDBObject").init(arguments.query) />
 		<cfset localVars.cursor = localVars.collection.find(localVars.query) />
 
 		<cfreturn localVars.cursor />
@@ -65,7 +66,7 @@
 
 		<cfset var localVars = structNew() />
 		<cfset localVars.id = createId(arguments.id) />
-		<cfset localVars.query = createObject("java", "com.mongodb.BasicDBObject").init("_id", localVars.id) />
+		<cfset localVars.query = variables.javaLoader.create("com.mongodb.BasicDBObject").init("_id", localVars.id) />
 		<cfset localVars.collection = variables.db.getCollection(arguments.collection) />
 		<cfset localVars.returnDocument = localVars.collection.findOne(localVars.query) />
 		<cfif NOT structKeyExists(localVars, "returnDocument")>
@@ -85,7 +86,7 @@
 
 		<cfset var localVars = structNew() />
 		<cfset localVars.collection = variables.db.getCollection(arguments.collection) />
-		<cfset localVars.query = createObject("java", "com.mongodb.BasicDBObject").init(arguments.query) />
+		<cfset localVars.query = variables.javaLoader.create("com.mongodb.BasicDBObject").init(arguments.query) />
 
 		<cfset localVars.collection.remove(localVars.query) />
 	</cffunction>
@@ -112,14 +113,14 @@
 			<cfif NOT arguments.upsert>
 				<cfthrow message="You must provide a document with _id defined" />
 			<cfelse>
-				<cfset arguments.document["_id"] = createObject("java", "com.mongodb.ObjectId").get() />
+				<cfset arguments.document["_id"] = variables.javaLoader.create("com.mongodb.ObjectId").get() />
 			</cfif>
 		</cfif>
 		<cfset localVars.oldDoc = getById(arguments.document["_id"], arguments.collection, false) />
 		<cfif NOT structKeyExists(localVars, "oldDoc")>
-			<cfset localVars.oldDoc = createObject("java", "com.mongodb.BasicDBObject").init(arguments.document) />
+			<cfset localVars.oldDoc = variables.javaLoader.create("com.mongodb.BasicDBObject").init(arguments.document) />
 		</cfif>
-		<cfset localVars.newDocument = createObject("java", "com.mongodb.BasicDBObject").init(arguments.document) />
+		<cfset localVars.newDocument = variables.javaLoader.create("com.mongodb.BasicDBObject").init(arguments.document) />
 		<cfset localVars.collection = variables.db.getCollection(arguments.collection) />
 
 		<cfreturn localVars.collection.update(localVars.oldDoc, localVars.newDocument, true, false).get("_id") />
@@ -147,14 +148,29 @@
 
 		<!--- Ensure we are working with the raw string (for cases where com.mongodb.ObjectID is passed as the id) --->
 		<cfset var localVars.idAsString = arguments.id.toString() />
-		<cfif createObject("java", "com.mongodb.ObjectId").isValid(localVars.idAsString)>
+		<cfif variables.javaLoader.create("com.mongodb.ObjectId").isValid(localVars.idAsString)>
 			<!--- If the string can be converted to an ObjectId, assume that's what is intended --->
-			<cfset localVars.id = createObject('java','com.mongodb.ObjectId').init(arguments.id.toString()) />
+			<cfset localVars.id = variables.javaLoader.create('com.mongodb.ObjectId').init(arguments.id.toString()) />
 		<cfelse>
 			<!--- Otherwise, assume this was an explicitly created id --->
 			<cfset localVars.id = localVars.idAsString />
 		</cfif>
 		
 		<cfreturn localVars.id />
+	</cffunction>
+
+	<cffunction name="initJavaLoader" output="true" access="private" returntype="any" hint="Initializes the JavaLoader instance">
+		<cfset var localVars = structNew() />
+		<cfset localVars.path = Replace(getMetaData(this).path, "\", "/", "all") />
+		<cfset localVars.path = ReplaceNoCase(localVars.path, "com/MongoDB.cfc", "lib/") />
+		<cfset localVars.jarArray = ArrayNew(1) />
+
+		<cfdirectory action="list" name="localVars.jars" directory="#localVars.path#" filter="*.jar" />
+
+		<cfloop query="localVars.jars">
+			<cfset arrayAppend(localVars.jarArray, localVars.path & "/" & name) />
+		</cfloop>
+
+		<cfreturn createObject("component", "javaloader.JavaLoader").init(localVars.jarArray) />
 	</cffunction>
 </cfcomponent>
